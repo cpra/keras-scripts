@@ -1,0 +1,78 @@
+// Example file for use with `train.py` (and others)
+// Note that all comments must be removed as JSON does not support them
+// ~Christopher
+{
+    // Network properties
+    "netgen": {
+        // The generator to use for loading the net, in `module.generator` format
+        // See `kutils/netdefs.py` for examples
+        "path": "kutils.netdefs.example_cifar10_cnn",
+
+        // Optional path to add to the python path before attempting to find the generator
+        // Can be used instead of manipulating the python path by other means
+        "spath": null,
+
+        // Arguments to pass to the generator function
+        "args": {
+            // Number of (color) channels
+            "channels": 3,
+
+            // Number of rows (height) of patches
+            "rows": 32,
+
+            // Number of columns (width) of patches
+            "cols": 32
+        }
+    },
+
+    // Properties related to training
+    "train": {
+        // Keras optimizer properties
+        "optimizer": {
+            // Optimizer to use (must be a valid Keras optimizer name)
+            "type": "SGD",
+
+            // Arguments to pass to the optimizer during initialization
+            "args": {
+                // Initial learning rate
+                "lr": 0.01,
+
+                // Learning rate decay
+                "decay": 0,
+
+                // Momentum
+                "momentum": 0.9,
+
+                // Whether to use Nesterov momentum
+                "nesterov": true
+            }
+        }
+    },
+
+    // Data properties
+    "data": {
+        // One or several paths to HDF5 files that contain `X` (samples*dim numpy float array of features) and `y` (samples*1 numpy int array of class labels)
+        // A training epoch consists of training on all these files
+        "train": [
+            "PATH_TO_TRAINING_DATA.h5"
+        ],
+
+        // (Optional) one or several paths to HDF5 files that contain `X` (samples*dim numpy float array of features) and `y` (samples*1 numpy int array of class labels)
+        // The data are used for evaluation after each training epoch
+        "val": [
+            "PATH_TO_VALIDATION_DATA.h5"
+        ],
+
+        // Minibatch size
+        "batch_size": 64
+    },
+
+    // Preprocessing properties
+    "preprocess": {
+        // Whether to perform per-channel mean-subtraction
+        "demean": true,
+
+        // Value by which to divide feature vectors (after mean-subtraction)
+        "divide": 255
+    }
+}
