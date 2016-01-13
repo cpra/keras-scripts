@@ -209,3 +209,91 @@ def load_compile_model(info, info_filepath, verbose=True):
             print(' ', type(l).__name__, l.input_shape, l.output_shape)
 
     return model
+
+
+class SlidingWindowPatchExtractor:
+
+    '''
+    Extract patches from an image in a sliding window fashion.
+    '''
+
+    def __init__(self, im, patchsz, offset):
+        '''
+        Ctor.
+
+        Args:
+            self: current instance.
+            image: image as a numpy array, h*w or h*w*c
+            patchsz: patch size (int or tuple `(height, width)`)
+            offset: offset (int or tuple `(vertical, horizontal)`)
+        '''
+
+        self.im = im.copy()
+        self.patchsz = (patchsz, patchsz) if type(patchsz) is int else patchsz
+        self.offset = (offset, offset) if type(offset) is int else offset
+
+    def __iter__(self):
+        '''
+        Support for `for y0, x0, patch in extractor`.
+        '''
+
+        h, w = self.im.shape[0], self.im.shape[1]
+
+        x0 = 0
+        while x0+self.patchsz[1] <= w:
+            y0 = 0
+            while y0+self.patchsz[0] <= h:
+                yield (y0, x0, self.im[y0:y0+self.patchsz[0], x0:x0+self.patchsz[1], :])
+                y0 += self.offset[0]
+            x0 += self.offset[1]
+
+
+class PatchExtractorMinibatchWrapper:
+
+    '''
+    Wrap a patch extractor and convert patches to minibatches.
+    '''
+
+    def __init__(self, patch_extractor, batchsz):
+        '''
+        Ctor.
+
+        Args:
+            self: current instance.
+            patch_extractor: patch extractor to wrap.
+            batchsz: minibatch size.
+        '''
+
+        self._ex = patch_extractor
+        self._sz = batchsz
+
+    def __iter__(self):
+        '''
+        Support for `X, coords in extractor`.
+        `X` is a n*c*r*w numpy float32 array with 0 < n < batchsz.
+        `coords` is a n*2 numpy int array with `coords[i,:]` being the y0 and x0 patch coords of the sample as returned by the patch extractor.
+        '''
+
+        ims = self._ex.im.shape
+        X = np.empty((self._sz, ims[2] if len(ims) > 2 else 1, self._ex.patchsz[0], self._ex.patchsz[1]), dtype=np.float32)
+        coords = np.empty((self._sz, 2), dtype=np.int32)
+
+        i = 0
+        n = 0
+        for y0, x0, patch in self._ex:
+            n += 1
+            for c in np.arange(patch.shape[2] if patch.ndim > 2 else 1):
+                X[i, c, :, :] = patch[:, :, c]
+
+            coords[i, :] = (y0, x0)
+
+            i += 1
+
+            if i == self._sz:
+                yield X, coords
+                i = 0
+
+        if i > 0:
+            X = X[:i, :, :, :]
+            coords = coords[:i, :]
+            yield X, coords

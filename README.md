@@ -24,6 +24,10 @@ The script saves model weights in the form `MODEL_ep3.h5`, where `ep3` means "af
 
 `test.py` is used for testing a model trained using `train.py` on test data in the form of a single HDF5 file (see notes on `train.py` for details). The scripts uses a `.info` file to figure out which model, weights, and preprocessing to use.
 
+#### `apply_to_image.py` ####
+
+`apply_to_image.py` applies a model trained using `train.py` on on an image by sampling patches in a sliding window fashion. The predicted probabilities are then visualized as a color image (one channel per class, supports max. 3 classes).
+
 ## Author ###
 
 Christopher Pramerdorfer  
