@@ -74,5 +74,41 @@
 
         // Value by which to divide feature vectors (after mean-subtraction)
         "divide": 255
+    },
+
+    // Online minibatch augmentation during training and validation (and testing)
+    // See code documentation of `MinibatchProcessor` in `kutils/utils.py`
+    "augment": {
+        // Augmentation at training time
+        "train": {
+            // Horizontal mirroring
+            "hmirror": {
+                "proba": 0.5
+            },
+            // Random similarity transform
+            "rsim": {
+                "smin": 0.75,
+                "smax": 1.0,
+                "rmin": -45.0,
+                "rmax": 45.0,
+                "tmin": -3.0,
+                "tmax": 3.0
+            },
+            // Random cropping
+            "crop": {
+                "rows": 40,
+                "cols": 40,
+                "location": "random"
+            }
+        },
+        // Augmentation at validation and test time
+        "val": {
+            // Center crops
+            "crop": {
+                "rows": 40,
+                "cols": 40,
+                "location": "center"
+            }
+        }
     }
 }

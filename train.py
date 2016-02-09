@@ -18,7 +18,7 @@ parser.add_argument('fpath', type=str, help='Path to JSON file of training prope
 parser.add_argument('--rng', type=int, default=1, help='Random number generator seed to use for reproducible results')
 parser.add_argument('--weights', type=str, help='Path to a HDF5 file of model weights to use for initialization')
 parser.add_argument('--epochs', type=int, required=True, help='Number of epochs to train for')
-parser.add_argument('--stop_early', type=int, help='If specified, stop learning if the val loss did not decrease for `n` epochs')
+parser.add_argument('--stop_early', type=int, help='If specified, stop learning if the val accuracy did not increase for `n` epochs')
 parser.add_argument('--save', type=str, help='File to which to save model weights (excluding file ending, chosen automatically if not specified)')
 parser.add_argument('--save_best_only', action='store_true', help='If specified, newer weights overwrite older ones only if the val loss decreased')
 parser.add_argument('--log', type=str, default='auto', help='File to which to log to (`auto` means assign automatically, `` means do not log)')
@@ -27,6 +27,7 @@ args = parser.parse_args()
 assert(os.path.isfile(args.fpath))
 assert(not args.weights or os.path.isfile(args.weights))
 
+print('RNG seed: {}'.format(args.rng))
 np.random.seed(args.rng)
 
 from kutils import utils
@@ -94,6 +95,8 @@ if props['data']['val']:
         num_val += X_val.shape[0]
     print('{} validation samples'.format(num_val))
 
+print('Data augmentation: train: "{}", val: "{}"'.format(','.join([p for p in props['augment']['train']]), ','.join([p for p in props['augment']['val']])))
+
 # load net
 
 if args.weights:
@@ -136,9 +139,11 @@ cbs.on_train_begin()
 losses = []
 accs = []
 
-monitored_losses = []
+monitored_accs = []
 
-for e in range(args.epochs):
+e = 0
+
+while True:
     cbs.on_epoch_begin(e)
 
     # train
@@ -151,6 +156,9 @@ for e in range(args.epochs):
 
         batchgen = utils.BatchGen(X_train, y_train, props['data']['batchsize'], True, len(classes)) if len(props['data']['train']) == 1 else utils.BatchGen.from_file(fp, props['data']['batchsize'], True, len(classes))
 
+        if props['augment']['train']:
+            batchgen = utils.MinibatchProcessor(batchgen, props['augment']['train'])
+
         # train on batches
 
         b = 0
@@ -159,7 +167,8 @@ for e in range(args.epochs):
                 for i, m in enumerate(cnmeans):
                     X_batch[:, i, :, :] -= m
 
-            X_batch /= props['preprocess']['divide']
+            if props['preprocess']['divide'] != 1:
+                X_batch /= props['preprocess']['divide']
 
             cbs.on_batch_begin(b)
             tloss, tacc = model.train_on_batch(X_batch, Y_batch, accuracy=True)
@@ -189,6 +198,9 @@ for e in range(args.epochs):
 
             batchgen = utils.BatchGen(X_val, y_val, props['data']['batchsize'], False, len(classes)) if len(props['data']['val']) == 1 else utils.BatchGen.from_file(fp, props['data']['batchsize'], False, len(classes))
 
+            if props['augment']['val']:
+                batchgen = utils.MinibatchProcessor(batchgen, props['augment']['val'])
+
             # train on batches
 
             for X_batch, Y_batch in batchgen:
@@ -196,7 +208,8 @@ for e in range(args.epochs):
                     for i, m in enumerate(cnmeans):
                         X_batch[:, i, :, :] -= m
 
-                X_batch /= props['preprocess']['divide']
+                if props['preprocess']['divide'] != 1:
+                    X_batch /= props['preprocess']['divide']
 
                 vloss, vacc = model.test_on_batch(X_batch, Y_batch, accuracy=True)
 
@@ -206,22 +219,24 @@ for e in range(args.epochs):
         val_losses = np.array(val_losses)
         val_accs = np.array(val_accs)
 
-        monitored_losses.append(val_losses.mean())
+        monitored_accs.append(val_accs.mean())
         cbs.on_epoch_end(e, {'val_loss': val_losses.mean(), 'val_acc': val_accs.mean()})
         log('v {} {:.3f} {:.3f} {:.3f} {:.3f}'.format(e, float(val_losses.mean()), float(val_losses.std()), float(val_accs.mean()), float(val_accs.std())))
     else:
-        monitored_losses.append(train_losses.mean())
+        monitored_accs.append(train_accs.mean())
         cbs.on_epoch_end(e)
 
-    mloss = np.array(monitored_losses)
+    macc = np.array(monitored_accs)
 
-    if not args.save_best_only or not np.any(mloss[:-1] < mloss[-1]):
+    if not args.save_best_only or np.all(macc[:-1] < macc[-1]):
         wfn = '{}_ep{}.h5'.format(args.save, e+1) if not args.save_best_only else args.save + '.h5'
         ifn = wfn + ".info"
 
         if not args.save_best_only:
             assert(not os.path.exists(wfn))
             assert(not os.path.exists(ifn))
+        else:
+            print('Saving model weights')
 
         model.save_weights(wfn, overwrite=True)
 
@@ -237,8 +252,35 @@ for e in range(args.epochs):
         with open(ifn, 'w') as f:
             json.dump(info, f, indent=2)
 
-    if args.stop_early and mloss.size > args.stop_early and not np.any(mloss[-1] < mloss[-(args.stop_early+1):-1]):
-        print('Loss did not decrease for {} epochs, stopping'.format(args.stop_early))
+    if args.stop_early and macc.size > args.stop_early and not np.any(macc[-1] > macc[-(args.stop_early+1):-1]):
+        print('Accuracy did not improve for {} epochs, stopping'.format(args.stop_early))
         break
+
+    e += 1
+
+    if e == args.epochs:
+        print('Target number of epochs reached.')
+        print(' Enter `n`, the number of additional epochs, to continue training')
+        print(" Enter `n@l` to continue training for `n` epochs at the specified base learning rate (i.e. before decay)")
+
+        inpt = input('Input: ')
+        try:
+            nd = int(inpt)
+            args.epochs += nd
+            print('Training for {} more epochs'.format(nd))
+        except ValueError:
+            if '@' in inpt:
+                try:
+                    nd = int(inpt.split('@')[0])
+                    nlr = float(inpt.split('@')[1])
+
+                    args.epochs += nd
+                    model.optimizer.lr.set_value(nlr)
+
+                    print('Training for {} more epochs at rate {}'.format(nd, nlr))
+                except ValueError:
+                    break
+            else:
+                break
 
 cbs.on_train_end()
